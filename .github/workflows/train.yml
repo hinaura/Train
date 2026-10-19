@@ -1,0 +1,89 @@
+name: train-broken-ae
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Длительность: quick 2000 / normal 10000 / long 30000 шагов"
+        type: choice
+        options: [quick, normal, long]
+        default: normal
+      steps:
+        description: "Свои шаги (пусто = по пресету)"
+        default: ""
+      width:
+        description: "Ширина сети (8 очень слабая, 16 слабая, 32 нормальная)"
+        type: choice
+        options: ["8", "16", "24", "32", "48"]
+        default: "16"
+      lat_ch:
+        description: "Горлышко (2-3 жёстко, 4-6 средне, 8 мягко)"
+        type: choice
+        options: ["2", "3", "4", "6", "8"]
+        default: "4"
+      crop:
+        description: "Размер кропа при обучении"
+        type: choice
+        options: ["32", "48", "64", "96"]
+        default: "64"
+      limit:
+        description: "Сколько картинок брать в память"
+        default: "30000"
+      loss:
+        description: "Функция потерь"
+        type: choice
+        options: [l1edge, mse]
+        default: l1edge
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          pip install pillow numpy
+
+      - name: Restore checkpoint
+        uses: actions/cache/restore@v4
+        with:
+          path: broken_model.pt.partial
+          key: ckpt-${{ github.run_id }}
+          restore-keys: ckpt-
+
+      - name: Train
+        timeout-minutes: 330
+        run: >
+          python broken_ae.py train
+          --preset ${{ inputs.preset }}
+          ${{ inputs.steps && format('--steps {0}', inputs.steps) || '' }}
+          --width ${{ inputs.width }}
+          --lat-ch ${{ inputs.lat_ch }}
+          --crop ${{ inputs.crop }}
+          --limit ${{ inputs.limit }}
+          --loss ${{ inputs.loss }}
+
+      - name: Save checkpoint
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: broken_model.pt.partial
+          key: ckpt-${{ github.run_id }}
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: result
+          path: |
+            broken_model.pt
+            out/
+          if-no-files-found: ignore
